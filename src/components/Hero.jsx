@@ -63,17 +63,35 @@ const CARDS = [
   },
 ];
 
-function WhiteParticles() {
+const TWO_PI = Math.PI * 2;
+
+function WhiteParticles({ isPaused }) {
   const ref = useRef(null);
+  
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    let raf;
-    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    const ctx = canvas.getContext("2d", { alpha: true });
+    let rafId;
+    let lastTime = 0;
+    
+    const isMobile = window.innerWidth < 768;
+    const fpsInterval = isMobile ? 1000 / 30 : 1000 / 60; 
+
+    const resize = () => { 
+      canvas.width = window.innerWidth; 
+      canvas.height = window.innerHeight; 
+    };
     resize();
-    window.addEventListener("resize", resize);
-    const COUNT = window.innerWidth < 768 ? 35 : 75; // Responsive count
+
+    let resizeTimer;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(resize, 200);
+    };
+    window.addEventListener("resize", handleResize);
+
+    const COUNT = isMobile ? 35 : 75;
     const particles = Array.from({ length: COUNT }, () => ({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
@@ -81,31 +99,66 @@ function WhiteParticles() {
       vx: (Math.random() - 0.5) * 0.1,
       vy: -(Math.random() * 0.15 + 0.05),
       alpha: Math.random() * 0.3 + 0.05,
-      flicker: Math.random() * Math.PI * 2,
+      flicker: Math.random() * TWO_PI,
     }));
-    const draw = () => {
-      const W = canvas.width, H = canvas.height;
+
+    const draw = (time) => {
+      if (isPaused) {
+        rafId = requestAnimationFrame(draw);
+        return; 
+      }
+
+      rafId = requestAnimationFrame(draw);
+      
+      const deltaTime = time - lastTime;
+      if (deltaTime < fpsInterval) return; 
+      lastTime = time - (deltaTime % fpsInterval);
+
+      const W = canvas.width;
+      const H = canvas.height;
+      
       ctx.clearRect(0, 0, W, H);
-      const now = performance.now() * 0.001;
-      particles.forEach((p) => {
-        p.x += p.vx; p.y += p.vy;
+      const now = time * 0.001;
+      ctx.fillStyle = "#ffffff";
+      
+      for (let i = 0; i < COUNT; i++) {
+        const p = particles[i];
+        p.x += p.vx; 
+        p.y += p.vy;
+        
         if (p.x < -2) p.x = W + 2;
-        if (p.x > W + 2) p.x = -2;
-        if (p.y < -2) { p.y = H + 2; p.x = Math.random() * W; }
-        const twinkle = (Math.sin(now * 1.1 + p.flicker) + 1) / 2;
-        const a = p.alpha * (0.6 + twinkle * 0.4);
-        ctx.globalAlpha = a;
-        ctx.fillStyle = "#ffffff";
-        ctx.shadowBlur = p.r > 1 ? 4 : 0;
-        ctx.shadowColor = "rgba(255,255,255,0.5)";
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      });
-      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-      raf = requestAnimationFrame(draw);
+        else if (p.x > W + 2) p.x = -2;
+        
+        if (p.y < -2) { 
+          p.y = H + 2; 
+          p.x = Math.random() * W; 
+        }
+        
+        const twinkle = (Math.sin(now * 1.1 + p.flicker) + 1) * 0.5;
+        ctx.globalAlpha = p.alpha * (0.6 + twinkle * 0.4);
+        
+        if (!isMobile && p.r > 1) {
+            ctx.shadowBlur = 4;
+            ctx.shadowColor = "rgba(255,255,255,0.5)";
+        } else {
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.beginPath(); 
+        ctx.arc(p.x, p.y, p.r, 0, TWO_PI); 
+        ctx.fill();
+      }
     };
-    draw();
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
-  }, []);
+    
+    rafId = requestAnimationFrame(draw);
+    
+    return () => { 
+      cancelAnimationFrame(rafId); 
+      window.removeEventListener("resize", handleResize); 
+      clearTimeout(resizeTimer);
+    };
+  }, [isPaused]); 
+
   return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }} />;
 }
 
@@ -113,14 +166,25 @@ export default function Hero() {
   const [scrolled,  setScrolled]  = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isLoaded,  setIsLoaded]  = useState(false);
+  const [isHeroVisible, setIsHeroVisible] = useState(true);
 
   useEffect(() => {
-    // Premium cinematic stagger entry
     const timer = setTimeout(() => setIsLoaded(true), 100); 
-    const onScroll = () => setScrolled(window.scrollY > 30);
-    window.addEventListener("scroll", onScroll);
     
-    // Lock body scroll when mobile menu is open
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setScrolled(window.scrollY > 30);
+          setIsHeroVisible(window.scrollY < window.innerHeight + 100);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    
+    window.addEventListener("scroll", onScroll, { passive: true });
+    
     if (menuOpen) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = 'unset';
 
@@ -131,7 +195,6 @@ export default function Hero() {
     };
   }, [menuOpen]);
 
-  // Premium easing function for physics-like snap
   const cinematicEase = "cubic-bezier(0.16, 1, 0.3, 1)";
 
   return (
@@ -279,13 +342,12 @@ export default function Hero() {
         .content-wrapper {
           max-width: 650px; width: 100%;
           display: flex; flex-direction: column;
-          align-items: flex-start; /* Ensures pristine left-alignment on desktop */
+          align-items: flex-start;
         }
 
         .text-shadow-hard { text-shadow: 0 2px 10px rgba(0,0,0,0.9); }
         .mobile-menu-btn { display: none; }
         
-        /* 📱 STRICT MOBILE FIXES */
         @media (max-width: 1024px) {
           .desktop-nav { display: none !important; }
           .mobile-menu-btn { 
@@ -305,13 +367,11 @@ export default function Hero() {
             background: linear-gradient(180deg, transparent 0%, rgba(5,3,13,0.6) 20%, rgba(5,3,13,0.95) 45%, rgba(5,3,13,1) 100%);
           }
           
-          /* Force strict center alignment across all child elements */
           .content-wrapper {
             align-items: center !important;
             text-align: center !important;
           }
 
-          /* Force pills to center and space perfectly */
           .pills-row { 
             justify-content: center !important; 
             align-items: center !important;
@@ -326,7 +386,7 @@ export default function Hero() {
         }
       `}</style>
 
-      {/* Screen Load Overlay (Smooth fade in) */}
+      {/* Screen Load Overlay */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 999, background: 'var(--bg-deep)',
         opacity: isLoaded ? 0 : 1, pointerEvents: 'none', transition: 'opacity 1.2s ease-out'
@@ -341,8 +401,13 @@ export default function Hero() {
             backgroundImage: `linear-gradient(rgba(108,43,217,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(108,43,217,0.05) 1px, transparent 1px)`,
             backgroundSize: "60px 60px", opacity: isLoaded ? 1 : 0, transition: "opacity 2s ease"
           }} />
-          <Suspense fallback={null}><Scene /></Suspense>
-          <WhiteParticles />
+          
+          {isHeroVisible && (
+            <Suspense fallback={null}>
+              <Scene isPaused={!isHeroVisible} />
+            </Suspense>
+          )}
+          <WhiteParticles isPaused={!isHeroVisible} />
         </div>
 
         {/* Navbar */}
@@ -383,7 +448,7 @@ export default function Hero() {
           </button>
         </nav>
 
-        {/* Mobile Dropdown Menu (Premium In/Out) */}
+        {/* Mobile Dropdown Menu */}
         <div style={{
             position: 'fixed', top: 75, left: 0, width: '100%', height: 'calc(100vh - 75px)',
             background: 'rgba(5,3,13,0.98)', backdropFilter: 'blur(25px)',
@@ -403,12 +468,11 @@ export default function Hero() {
           ))}
         </div>
 
-        {/* Hero Content */}
+        {/* Hero Content (Restored!) */}
         <div className="hero-split">
           <div className="hero-left">
             <div className="content-wrapper">
               
-              {/* 1. Pre-Kicker - Removed inline alignSelf to allow CSS class to control alignment */}
               <div className="text-shadow-hard" style={{ 
                 marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 12, padding: "8px 18px", 
                 borderRadius: 100, border: "1px solid rgba(0,255,198,0.25)", background: "rgba(0,255,198,0.08)", 
@@ -419,7 +483,6 @@ export default function Hero() {
                 <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--accent-green)" }}>NEXT-GEN THREAT ISOLATION</span>
               </div>
 
-              {/* 2. Brand Name */}
               <div style={{ marginBottom: 12, overflow: "hidden", paddingBottom: "10px", alignSelf: "flex-start", width: "100%" }}>
                 <h1 style={{ 
                   margin: 0, fontFamily: "'Orbitron', sans-serif", fontSize: "clamp(48px, 6.5vw, 90px)", fontWeight: 900, lineHeight: 1.0, letterSpacing: "0.02em",
@@ -435,7 +498,6 @@ export default function Hero() {
                 </h1>
               </div>
 
-              {/* 3. Sub-Kicker */}
               <div style={{ marginBottom: 30, overflow: "hidden", alignSelf: "flex-start", width: "100%" }}>
                 <div style={{ 
                   fontFamily: "'Orbitron', sans-serif", fontSize: "clamp(13px, 1.4vw, 17px)", letterSpacing: "0.25em", textShadow: "0 2px 10px rgba(0,0,0,0.9)",
@@ -449,7 +511,6 @@ export default function Hero() {
                 </div>
               </div>
 
-              {/* 4. Paragraph */}
               <p className="text-shadow-hard" style={{ 
                 margin: "0 0 40px 0", fontSize: "clamp(15px, 1.2vw, 17px)", lineHeight: 1.7, color: "var(--text-secondary)", fontFamily: "'Rajdhani', sans-serif", fontWeight: 500,
                 opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(25px)",
@@ -458,7 +519,6 @@ export default function Hero() {
                 We architect the bedrock of digital sovereignty. Fusing post-quantum cryptography, immutable decentralized ledgers, and autonomous threat-hunting AI into a single, impenetrable fortress for enterprise infrastructure.
               </p>
 
-              {/* 5. Buttons - Removed inline alignSelf */}
               <div style={{ 
                 display: "flex", gap: 16, marginBottom: 50,
                 opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(25px)",
@@ -469,7 +529,6 @@ export default function Hero() {
                 </button>
               </div>
 
-              {/* 6. Pills */}
               <div className="pills-row" style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 45, alignSelf: "flex-start", width: "100%" }}>
                 {PILLS.map((p, i) => (
                   <div key={i} className="service-pill" style={{ 
@@ -482,7 +541,6 @@ export default function Hero() {
                 ))}
               </div>
 
-              {/* 7. Cards */}
               <div className="cards-container" style={{ display: "flex", gap: 20, width: "100%" }}>
                 {CARDS.map((card, i) => (
                   <div key={i} className="feature-card" style={{ 
@@ -499,7 +557,6 @@ export default function Hero() {
             </div>
           </div>
 
-          {/* Desktop Center Line */}
           <div className="hero-divider" style={{ 
             position: "absolute", left: "55%", top: "20%", bottom: "20%", width: 1, 
             background: "linear-gradient(to bottom, transparent, rgba(108,43,217,0.5), transparent)", 
