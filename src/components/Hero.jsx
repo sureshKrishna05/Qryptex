@@ -67,6 +67,8 @@ const TWO_PI = Math.PI * 2;
 
 function WhiteParticles({ isPaused }) {
   const ref = useRef(null);
+  // OPTIMIZATION: Persist particles so they aren't destroyed and recreated on scroll
+  const particlesRef = useRef([]);
   
   useEffect(() => {
     const canvas = ref.current;
@@ -84,6 +86,20 @@ function WhiteParticles({ isPaused }) {
     };
     resize();
 
+    // OPTIMIZATION: Only generate particles once
+    if (particlesRef.current.length === 0) {
+        const COUNT = isMobile ? 35 : 75;
+        particlesRef.current = Array.from({ length: COUNT }, () => ({
+          x: Math.random() * window.innerWidth,
+          y: Math.random() * window.innerHeight,
+          r: Math.random() * 1.2 + 0.2,
+          vx: (Math.random() - 0.5) * 0.1,
+          vy: -(Math.random() * 0.15 + 0.05),
+          alpha: Math.random() * 0.3 + 0.05,
+          flicker: Math.random() * TWO_PI,
+        }));
+    }
+
     let resizeTimer;
     const handleResize = () => {
       clearTimeout(resizeTimer);
@@ -91,22 +107,9 @@ function WhiteParticles({ isPaused }) {
     };
     window.addEventListener("resize", handleResize);
 
-    const COUNT = isMobile ? 35 : 75;
-    const particles = Array.from({ length: COUNT }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      r: Math.random() * 1.2 + 0.2,
-      vx: (Math.random() - 0.5) * 0.1,
-      vy: -(Math.random() * 0.15 + 0.05),
-      alpha: Math.random() * 0.3 + 0.05,
-      flicker: Math.random() * TWO_PI,
-    }));
-
     const draw = (time) => {
-      if (isPaused) {
-        rafId = requestAnimationFrame(draw);
-        return; 
-      }
+      // OPTIMIZATION: Completely halt execution if paused
+      if (isPaused) return; 
 
       rafId = requestAnimationFrame(draw);
       
@@ -116,12 +119,19 @@ function WhiteParticles({ isPaused }) {
 
       const W = canvas.width;
       const H = canvas.height;
+      const particles = particlesRef.current;
       
       ctx.clearRect(0, 0, W, H);
       const now = time * 0.001;
-      ctx.fillStyle = "#ffffff";
       
-      for (let i = 0; i < COUNT; i++) {
+      // OPTIMIZATION: Batch drawing. Draw all non-shadow particles first, then shadow particles.
+      // This prevents expensive context thrashing.
+      
+      // Pass 1: Standard Particles (No shadows)
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); 
+      for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.x += p.vx; 
         p.y += p.vy;
@@ -134,23 +144,35 @@ function WhiteParticles({ isPaused }) {
           p.x = Math.random() * W; 
         }
         
-        const twinkle = (Math.sin(now * 1.1 + p.flicker) + 1) * 0.5;
-        ctx.globalAlpha = p.alpha * (0.6 + twinkle * 0.4);
-        
-        if (!isMobile && p.r > 1) {
-            ctx.shadowBlur = 4;
-            ctx.shadowColor = "rgba(255,255,255,0.5)";
-        } else {
-            ctx.shadowBlur = 0;
+        if (isMobile || p.r <= 1) {
+            const twinkle = (Math.sin(now * 1.1 + p.flicker) + 1) * 0.5;
+            ctx.globalAlpha = p.alpha * (0.6 + twinkle * 0.4);
+            ctx.beginPath(); 
+            ctx.arc(p.x, p.y, p.r, 0, TWO_PI); 
+            ctx.fill();
         }
+      }
 
-        ctx.beginPath(); 
-        ctx.arc(p.x, p.y, p.r, 0, TWO_PI); 
-        ctx.fill();
+      // Pass 2: Glowing Particles (Heavy - Desktop Only)
+      if (!isMobile) {
+          ctx.shadowBlur = 4;
+          ctx.shadowColor = "rgba(255,255,255,0.5)";
+          for (let i = 0; i < particles.length; i++) {
+              const p = particles[i];
+              if (p.r > 1) {
+                  const twinkle = (Math.sin(now * 1.1 + p.flicker) + 1) * 0.5;
+                  ctx.globalAlpha = p.alpha * (0.6 + twinkle * 0.4);
+                  ctx.beginPath(); 
+                  ctx.arc(p.x, p.y, p.r, 0, TWO_PI); 
+                  ctx.fill();
+              }
+          }
       }
     };
     
-    rafId = requestAnimationFrame(draw);
+    if (!isPaused) {
+        rafId = requestAnimationFrame(draw);
+    }
     
     return () => { 
       cancelAnimationFrame(rafId); 
@@ -159,7 +181,7 @@ function WhiteParticles({ isPaused }) {
     };
   }, [isPaused]); 
 
-  return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }} />;
+  return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0, willChange: "transform" }} />;
 }
 
 export default function Hero() {
@@ -175,8 +197,13 @@ export default function Hero() {
     const onScroll = () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
-          setScrolled(window.scrollY > 30);
-          setIsHeroVisible(window.scrollY < window.innerHeight + 100);
+          // OPTIMIZATION: Only update React state if the value actually changed to prevent re-renders
+          const isNowScrolled = window.scrollY > 30;
+          const isNowHeroVisible = window.scrollY < window.innerHeight + 100;
+          
+          setScrolled(prev => prev !== isNowScrolled ? isNowScrolled : prev);
+          setIsHeroVisible(prev => prev !== isNowHeroVisible ? isNowHeroVisible : prev);
+          
           ticking = false;
         });
         ticking = true;
@@ -246,6 +273,9 @@ export default function Hero() {
           letter-spacing: 0.15em; text-transform: uppercase;
           cursor: pointer; transition: all 0.5s ${cinematicEase};
           white-space: nowrap; z-index: 1; backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px); /* For iOS optimization */
+          transform: translateZ(0); /* Force Hardware Acceleration */
+          will-change: transform, box-shadow;
           box-shadow: 0 4px 15px rgba(0,0,0,0.4);
         }
         .cta-primary::after {
@@ -256,7 +286,7 @@ export default function Hero() {
         }
         .cta-primary:hover::after { transform: translateX(100%) skewX(-15deg); }
         .cta-primary:hover {
-          transform: translateY(-3px) scale(1.02); border-color: var(--accent-green);
+          transform: translateY(-3px) scale(1.02) translateZ(0); border-color: var(--accent-green);
           box-shadow: 0 12px 30px rgba(108,43,217,0.4), 0 0 20px rgba(0,255,198,0.2) inset;
         }
 
@@ -266,6 +296,9 @@ export default function Hero() {
           padding: 10px 20px; border-radius: 100px; 
           border: 1px solid var(--glass-border);
           background: rgba(15, 10, 28, 0.6); backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          transform: translateZ(0); 
+          will-change: transform;
           font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 600;
           letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-secondary);
           white-space: nowrap; transition: all 0.4s ease;
@@ -273,7 +306,7 @@ export default function Hero() {
         }
         .service-pill:hover { 
           background: rgba(108,43,217,0.2); color: var(--text-primary);
-          border-color: rgba(108,43,217,0.5); transform: translateY(-3px) scale(1.02); 
+          border-color: rgba(108,43,217,0.5); transform: translateY(-3px) scale(1.02) translateZ(0); 
           box-shadow: 0 10px 25px rgba(0,0,0,0.4);
         }
 
@@ -284,6 +317,9 @@ export default function Hero() {
           border: 1px solid var(--glass-border);
           background: linear-gradient(145deg, rgba(15,10,28,0.8), rgba(5,3,13,0.95));
           backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          transform: translateZ(0);
+          will-change: transform;
           transition: all 0.5s ${cinematicEase}; flex: 1; text-align: left;
           position: relative; overflow: hidden;
           box-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -294,7 +330,7 @@ export default function Hero() {
           opacity: 0; transition: opacity 0.5s ease;
         }
         .feature-card:hover {
-          transform: translateY(-8px); border-color: rgba(108,43,217,0.5);
+          transform: translateY(-8px) translateZ(0); border-color: rgba(108,43,217,0.5);
           box-shadow: 0 25px 50px rgba(0,0,0,0.6), 0 0 30px rgba(108,43,217,0.15);
         }
         .feature-card:hover::before { opacity: 1; }
@@ -355,6 +391,8 @@ export default function Hero() {
             background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); 
             color: var(--text-primary); cursor: pointer; border-radius: 4px;
             width: 44px; height: 44px; backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transform: translateZ(0);
           }
           
           .hero-split { flex-direction: column !important; align-items: stretch; }
@@ -402,11 +440,18 @@ export default function Hero() {
             backgroundSize: "60px 60px", opacity: isLoaded ? 1 : 0, transition: "opacity 2s ease"
           }} />
           
-          {isHeroVisible && (
+          {/* OPTIMIZATION: Do not UNMOUNT the scene on scroll. Unmounting WebGL freezes the browser. 
+              Instead, just pause the render loop using your prop and manage visibility via CSS */}
+          <div style={{ 
+              opacity: isHeroVisible ? 1 : 0, 
+              transition: 'opacity 0.5s ease', 
+              pointerEvents: isHeroVisible ? 'auto' : 'none' 
+          }}>
             <Suspense fallback={null}>
               <Scene isPaused={!isHeroVisible} />
             </Suspense>
-          )}
+          </div>
+          
           <WhiteParticles isPaused={!isHeroVisible} />
         </div>
 
@@ -417,9 +462,11 @@ export default function Hero() {
           padding: "0 5%", height: 75,
           background: scrolled || menuOpen ? "rgba(5,3,13,0.9)" : "transparent",
           backdropFilter: scrolled || menuOpen ? "blur(24px)" : "none",
+          WebkitBackdropFilter: scrolled || menuOpen ? "blur(24px)" : "none",
           borderBottom: scrolled || menuOpen ? "1px solid rgba(108,43,217,0.25)" : "1px solid transparent",
           opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(-20px)",
           transition: `all 0.8s ${cinematicEase}`,
+          willChange: "background, backdrop-filter, border-bottom"
         }}>
           <a href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
             <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
@@ -451,11 +498,12 @@ export default function Hero() {
         {/* Mobile Dropdown Menu */}
         <div style={{
             position: 'fixed', top: 75, left: 0, width: '100%', height: 'calc(100vh - 75px)',
-            background: 'rgba(5,3,13,0.98)', backdropFilter: 'blur(25px)',
+            background: 'rgba(5,3,13,0.98)', backdropFilter: 'blur(25px)', WebkitBackdropFilter: 'blur(25px)',
             zIndex: 99, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 35,
-            transform: menuOpen ? 'translateY(0) scale(1)' : 'translateY(-20px) scale(0.98)',
+            transform: menuOpen ? 'translateY(0) scale(1) translateZ(0)' : 'translateY(-20px) scale(0.98) translateZ(0)',
             opacity: menuOpen ? 1 : 0, visibility: menuOpen ? 'visible' : 'hidden',
-            transition: `all 0.5s ${cinematicEase}`, pointerEvents: menuOpen ? 'auto' : 'none'
+            transition: `all 0.5s ${cinematicEase}`, pointerEvents: menuOpen ? 'auto' : 'none',
+            willChange: "transform, opacity, visibility"
         }}>
           {NAV_LINKS.map((l, i) => (
             <a key={l.label} href={l.href} onClick={() => setMenuOpen(false)} style={{
@@ -468,7 +516,7 @@ export default function Hero() {
           ))}
         </div>
 
-        {/* Hero Content (Restored!) */}
+        {/* Hero Content */}
         <div className="hero-split">
           <div className="hero-left">
             <div className="content-wrapper">
@@ -476,8 +524,8 @@ export default function Hero() {
               <div className="text-shadow-hard" style={{ 
                 marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 12, padding: "8px 18px", 
                 borderRadius: 100, border: "1px solid rgba(0,255,198,0.25)", background: "rgba(0,255,198,0.08)", 
-                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1)" : "translateY(25px) scale(0.95)",
-                transition: `all 1s ${cinematicEase} 0.2s`
+                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1) translateZ(0)" : "translateY(25px) scale(0.95) translateZ(0)",
+                transition: `all 1s ${cinematicEase} 0.2s`, willChange: "transform, opacity"
               }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent-green)", animation: "pulseDot 2s infinite" }} />
                 <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", color: "var(--accent-green)" }}>NEXT-GEN THREAT ISOLATION</span>
@@ -489,10 +537,10 @@ export default function Hero() {
                   background: "linear-gradient(110deg, #FFFFFF 0%, #E9E6FF 40%, #A1A1C2 60%, #FFFFFF 100%)",
                   backgroundSize: "200% auto", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", 
                   filter: "drop-shadow(0px 8px 20px rgba(0,0,0,0.8)) drop-shadow(0px 0px 30px rgba(108,43,217,0.5))",
-                  transform: isLoaded ? "translateY(0) scale(1)" : "translateY(100%) scale(0.95)", opacity: isLoaded ? 1 : 0,
+                  transform: isLoaded ? "translateY(0) scale(1) translateZ(0)" : "translateY(100%) scale(0.95) translateZ(0)", opacity: isLoaded ? 1 : 0,
                   transition: `transform 1.2s ${cinematicEase} 0.3s, opacity 0.8s ease 0.3s`,
                   animation: isLoaded ? "shimmerText 8s linear infinite forwards" : "none",
-                  textAlign: "inherit"
+                  textAlign: "inherit", willChange: "transform, opacity"
                 }}>
                   Q<span style={{ background: "linear-gradient(90deg, var(--accent-green), #00A383)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>RYP</span>TEX
                 </h1>
@@ -501,9 +549,9 @@ export default function Hero() {
               <div style={{ marginBottom: 30, overflow: "hidden", alignSelf: "flex-start", width: "100%" }}>
                 <div style={{ 
                   fontFamily: "'Orbitron', sans-serif", fontSize: "clamp(13px, 1.4vw, 17px)", letterSpacing: "0.25em", textShadow: "0 2px 10px rgba(0,0,0,0.9)",
-                  transform: isLoaded ? "translateY(0)" : "translateY(100%)", opacity: isLoaded ? 1 : 0,
+                  transform: isLoaded ? "translateY(0) translateZ(0)" : "translateY(100%) translateZ(0)", opacity: isLoaded ? 1 : 0,
                   transition: `transform 1.2s ${cinematicEase} 0.4s, opacity 0.8s ease 0.4s`,
-                  textAlign: "inherit"
+                  textAlign: "inherit", willChange: "transform, opacity"
                 }}>
                   <span style={{ color: "var(--text-primary)", fontWeight: 700, textTransform: "uppercase" }}>
                     Absolute Security. <span style={{ color: "var(--accent-green)" }}>Infinite Scale.</span>
@@ -513,16 +561,16 @@ export default function Hero() {
 
               <p className="text-shadow-hard" style={{ 
                 margin: "0 0 40px 0", fontSize: "clamp(15px, 1.2vw, 17px)", lineHeight: 1.7, color: "var(--text-secondary)", fontFamily: "'Rajdhani', sans-serif", fontWeight: 500,
-                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(25px)",
-                transition: `all 1.2s ${cinematicEase} 0.5s`, alignSelf: "flex-start", textAlign: "inherit"
+                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) translateZ(0)" : "translateY(25px) translateZ(0)",
+                transition: `all 1.2s ${cinematicEase} 0.5s`, alignSelf: "flex-start", textAlign: "inherit", willChange: "transform, opacity"
               }}>
                 We architect the bedrock of digital sovereignty. Fusing post-quantum cryptography, immutable decentralized ledgers, and autonomous threat-hunting AI into a single, impenetrable fortress for enterprise infrastructure.
               </p>
 
               <div style={{ 
                 display: "flex", gap: 16, marginBottom: 50,
-                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(25px)",
-                transition: `all 1.2s ${cinematicEase} 0.6s`
+                opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) translateZ(0)" : "translateY(25px) translateZ(0)",
+                transition: `all 1.2s ${cinematicEase} 0.6s`, willChange: "transform, opacity"
               }}>
                 <button className="cta-primary" onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}>
                   Deploy Infrastructure
@@ -532,7 +580,7 @@ export default function Hero() {
               <div className="pills-row" style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 45, alignSelf: "flex-start", width: "100%" }}>
                 {PILLS.map((p, i) => (
                   <div key={i} className="service-pill" style={{ 
-                    opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1)" : "translateY(30px) scale(0.9)",
+                    opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1) translateZ(0)" : "translateY(30px) scale(0.9) translateZ(0)",
                     transition: `all 1s ${cinematicEase} ${0.7 + (i * 0.1)}s`,
                     animation: isLoaded ? `floatSubtle 5s ease-in-out infinite ${i * 0.3}s` : "none"
                   }}>
@@ -544,7 +592,7 @@ export default function Hero() {
               <div className="cards-container" style={{ display: "flex", gap: 20, width: "100%" }}>
                 {CARDS.map((card, i) => (
                   <div key={i} className="feature-card" style={{ 
-                    opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1)" : "translateY(40px) scale(0.95)",
+                    opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0) scale(1) translateZ(0)" : "translateY(40px) scale(0.95) translateZ(0)",
                     transition: `all 1.2s ${cinematicEase} ${0.9 + (i * 0.15)}s`
                   }}>
                     <div className="card-icon-wrapper">{card.icon}</div>
