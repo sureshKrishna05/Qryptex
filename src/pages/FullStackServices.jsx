@@ -269,11 +269,17 @@ export default function FullStackServices() {
       
       {/* Dynamic Scoped CSS */}
       <style>{`
-        html { scrollbar-color: rgba(255,0,200,0.8) transparent; scrollbar-width: thin; }
-        ::-webkit-scrollbar { width: 2px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,0,200,0.8); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #FF00C8; }
+        /* EXACT CONTACT-PAGE STYLE SCROLLBAR */
+        ::-webkit-scrollbar { 
+          width: 3px; 
+        }
+        ::-webkit-scrollbar-track { 
+          background: #05030D; 
+        }
+        ::-webkit-scrollbar-thumb { 
+          background: rgba(108, 43, 217, 0.55); 
+          border-radius: 2px; 
+        }
 
         .capabilities-grid {
           display: grid;

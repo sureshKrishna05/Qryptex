@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-// ── BACKGROUND EFFECT (Kept from original) ──────────────────────────────────
+// ── BACKGROUND EFFECT ──────────────────────────────────
 function CyberAmbient() {
   const ref = useRef(null);
   useEffect(() => {
@@ -56,7 +56,7 @@ function CyberAmbient() {
   return <canvas ref={ref} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }} />;
 }
 
-// ── IN-CARD PARTICLES EFFECT (Kept from original) ───────────────────────────
+// ── IN-CARD PARTICLES EFFECT ───────────────────────────
 function CardParticles({ active, accent }) {
   const ref = useRef(null);
   const pts = useRef([]);
@@ -124,7 +124,7 @@ function CardParticles({ active, accent }) {
   );
 }
 
-// ── INDIVIDUAL CARD COMPONENT (Updated Copy Focus) ──────────────────────────
+// ── INDIVIDUAL CARD COMPONENT ──────────────────────────
 function CyberCard({ cap, index, loaded }) {
   const [hov, setHov] = useState(false);
 
@@ -182,7 +182,7 @@ function CyberCard({ cap, index, loaded }) {
   );
 }
 
-// ── REVISED SERVICE DATA (Shifted to Business Value & Outcomes) ─────────────
+// ── REVISED SERVICE DATA ─────────────────────────────
 const CAPABILITIES = [
   {
     id: "risk-ai",
@@ -269,11 +269,17 @@ export default function Cybersec() {
       
       {/* Dynamic Scoped CSS */}
       <style>{`
-        html { scrollbar-color: rgba(108,43,217,0.8) transparent; scrollbar-width: thin; }
-        ::-webkit-scrollbar { width: 2px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(108,43,217,0.8); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #8B5CF6; }
+        /* EXACT CONTACT-PAGE STYLE SCROLLBAR */
+        ::-webkit-scrollbar { 
+          width: 3px; 
+        }
+        ::-webkit-scrollbar-track { 
+          background: #05030D; 
+        }
+        ::-webkit-scrollbar-thumb { 
+          background: rgba(108, 43, 217, 0.55); 
+          border-radius: 2px; 
+        }
 
         .capabilities-grid {
           display: grid;
@@ -436,7 +442,6 @@ export default function Cybersec() {
             overflow: "hidden"
           }}
         >
-          {/* Subtle glow behind CTA */}
           <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "100%", height: "100%", background: "radial-gradient(circle, rgba(108,43,217,0.15) 0%, transparent 60%)", pointerEvents: "none", zIndex: 0 }} />
           
           <div style={{ position: "relative", zIndex: 1 }}>
